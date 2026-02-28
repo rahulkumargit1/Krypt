@@ -1,0 +1,36 @@
+name: Deploy Krypt Server to EC2
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Copy server file to EC2
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_KEY }}
+          source: "server/main.py"
+          target: "~/krypt-server/"
+          strip_components: 1
+
+      - name: Restart server on EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            pkill -f uvicorn || true
+            pip3 install fastapi uvicorn websockets --break-system-packages -q
+            cd ~/krypt-server
+            nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 &
+            disown
+            echo "Server started!"
