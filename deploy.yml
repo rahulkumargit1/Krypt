@@ -1,0 +1,105 @@
+name: Deploy Krypt Server to EC2
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy server to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            # Kill old server
+            pkill -f uvicorn || true
+
+            # Create server folder
+            mkdir -p ~/krypt-server
+
+            # Write the server code
+            cat > ~/krypt-server/main.py << 'EOF'
+            import asyncio, json, logging
+            from typing import Dict, Optional
+            from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+            from fastapi.middleware.cors import CORSMiddleware
+
+            logging.basicConfig(level=logging.INFO)
+            logger = logging.getLogger("krypt-server")
+            app = FastAPI(title="Krypt Server", version="1.0.0")
+            app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+            class ConnectionRegistry:
+                def __init__(self):
+                    self.connections: Dict[str, WebSocket] = {}
+                    self.public_keys: Dict[str, str] = {}
+                async def register(self, uuid, ws, public_key):
+                    self.connections[uuid] = ws
+                    self.public_keys[uuid] = public_key
+                def unregister(self, uuid):
+                    self.connections.pop(uuid, None)
+                async def send_to(self, target_uuid, payload):
+                    ws = self.connections.get(target_uuid)
+                    if ws is None: return False
+                    try:
+                        await ws.send_text(json.dumps(payload))
+                        return True
+                    except:
+                        self.connections.pop(target_uuid, None)
+                        return False
+                def get_public_key(self, uuid):
+                    return self.public_keys.get(uuid)
+
+            registry = ConnectionRegistry()
+
+            @app.websocket("/ws")
+            async def websocket_endpoint(ws: WebSocket):
+                await ws.accept()
+                client_uuid = None
+                try:
+                    async for raw in ws.iter_text():
+                        try: msg = json.loads(raw)
+                        except: continue
+                        t = msg.get("type")
+                        if t == "register":
+                            client_uuid = msg.get("uuid")
+                            if not client_uuid: continue
+                            await registry.register(client_uuid, ws, msg.get("public_key",""))
+                            await ws.send_text(json.dumps({"type":"registered","uuid":client_uuid}))
+                        elif t == "get_public_key":
+                            pk = registry.get_public_key(msg.get("target"))
+                            await registry.send_to(msg.get("from"), {"type":"public_key_response","target":msg.get("target"),"public_key":pk} if pk else {"type":"error","message":"not found"})
+                        elif t in ["message","file_chunk","webrtc_offer","webrtc_answer","webrtc_ice"]:
+                            to = msg.get("to")
+                            if to: await registry.send_to(to, msg)
+                        elif t == "status":
+                            from_uuid = msg.get("from")
+                            if from_uuid:
+                                tasks = [registry.send_to(u, msg) for u in registry.connections if u != from_uuid]
+                                if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+                except WebSocketDisconnect: pass
+                finally:
+                    if client_uuid: registry.unregister(client_uuid)
+
+            @app.get("/") 
+            async def root(): return {"service":"Krypt Server","clients":len(registry.connections)}
+
+            @app.get("/health") 
+            async def health(): return {"status":"ok","clients":len(registry.connections)}
+            EOF
+
+            # Install dependencies
+            pip3 install fastapi uvicorn websockets --break-system-packages
+
+            # Start server permanently
+            cd ~/krypt-server
+            nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 &
+            disown
