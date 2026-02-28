@@ -22,6 +22,16 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: Force-write gradle.properties
+        run: |
+          cat > gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+          org.gradle.parallel=true
+          android.useAndroidX=true
+          android.enableJetifier=true
+          kotlin.code.style=official
+          EOF
+
       - name: Download Gradle Wrapper JAR
         run: |
           mkdir -p gradle/wrapper
