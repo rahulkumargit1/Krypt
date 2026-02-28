@@ -24,13 +24,13 @@ jobs:
 
       - name: Force-write gradle.properties
         run: |
-          cat > gradle.properties << 'EOF'
-          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
-          org.gradle.parallel=true
-          android.useAndroidX=true
-          android.enableJetifier=true
-          kotlin.code.style=official
-          EOF
+          echo "org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8" > gradle.properties
+          echo "org.gradle.parallel=true" >> gradle.properties
+          echo "android.useAndroidX=true" >> gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
+          echo "kotlin.code.style=official" >> gradle.properties
+          echo "--- gradle.properties contents ---"
+          cat gradle.properties
 
       - name: Download Gradle Wrapper JAR
         run: |
@@ -60,3 +60,12 @@ jobs:
         with:
           name: build-reports
           path: app/build/reports/
+```
+
+The `cat gradle.properties` line at the end will print the file contents in the Actions log so you can confirm it looks correct before Gradle runs. You should see exactly:
+```
+org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+org.gradle.parallel=true
+android.useAndroidX=true
+android.enableJetifier=true
+kotlin.code.style=official
