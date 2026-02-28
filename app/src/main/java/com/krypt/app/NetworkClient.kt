@@ -26,7 +26,7 @@ data class KryptMessage(
 object NetworkClient {
 
     // Change this to your deployed server URL
-    const val SERVER_URL = "ws://YOUR_SERVER_IP:8000/ws"
+    const val SERVER_URL = "ws://44.212.47.1:8000/ws"
 
     private val gson = Gson()
     private val scope = CoroutineScope(Dispatchers.IO)
